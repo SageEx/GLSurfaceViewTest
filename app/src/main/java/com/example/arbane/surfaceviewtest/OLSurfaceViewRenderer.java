@@ -9,15 +9,15 @@ import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 
-import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.Random;
 
-import javax.microedition.khronos.egl.EGL;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -31,13 +31,19 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
     private float w, h;
     private EffectContext effectContext;
     private int viewWidth, viewHeight;
+    private long time;
+    public volatile boolean isAnimationActive = false;
+    Random rand = new Random(713);
+
+    long startTime = 0L;
+    long elapsedTime = 0L;
+
 
     // create a model matrix for the triangle
-    private final float[] mModelMatrix = new float[16];
-    // create a temporary matrix for calculation purposes,
-// to avoid the same matrix on the right and left side of multiplyMM later
-// see https://stackoverflow.com/questions/13480043/opengl-es-android-matrix-transformations#comment18443759_13480364
-    private float[] mTempMatrix = new float[16];
+    private final float[] mProjectionMatrix = new float[16];
+    private final float[] mViewMatrix = new float[16];
+    private float[] scratch = new float[16];
+
     private float[] mRotationMatrix = new float[16];
     private final float[] mMVPMatrix = new float[16];
     private int mMVPMatrixHandle = 0;
@@ -54,24 +60,15 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
             0f, 0f,
             1f, 0f
     };
-//    private static final String vertexShaderCode =
-//            "attribute vec4 aPosition;" +
-//            "attribute vec2 aTexPosition;" +
-//            "uniform mat4 uMVPMatrix;" +
-//            "varying vec2 vTexPosition;" +
-//            "void main() {" +
-//            "  gl_Position = uMVPMatrix * aPosition;" +
-//            "  vTexPosition = aTexPosition;" +
-//            "}";
-
     private static final String vertexShaderCode =
             "attribute vec4 aPosition;" +
-                    "attribute vec2 aTexPosition;" +
-                    "varying vec2 vTexPosition;" +
-                    "void main() {" +
-                    "  gl_Position = aPosition;" +
-                    "  vTexPosition = aTexPosition;" +
-                    "}";
+            "attribute vec2 aTexPosition;" +
+            "uniform mat4 uMVPMatrix;" +
+            "varying vec2 vTexPosition;" +
+            "void main() {" +
+            "  gl_Position = uMVPMatrix * aPosition;" +
+            "  vTexPosition = aTexPosition;" +
+            "}";
 
     private final String fragmentShaderCode =
             "precision mediump float;" +
@@ -104,6 +101,8 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
                     h = limit;
                     w = (limit * w_ * viewHeight) / (viewWidth * h_);
                 }
+//                w = limit;
+//                h = (limit * viewHeight) / viewHeight;
                 break;
             case THUMB_VIEW_MODE:
                 viewWidth = dpToPx(mContext, 56);
@@ -140,18 +139,18 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 gl, int width, int height) {
         GLES20.glViewport(0, 0, width, height);
         GLES20.glClearColor(0f, 0f, 0f, 255f);
-
+        Log.e("ARBANE", "Hi");
         viewWidth = width;
         viewHeight = height;
+
+        float ratio = (float) width / height;
+//        ratio = 1;
+        Matrix.frustumM(mProjectionMatrix, 0, -ratio, ratio, -1, 1, 3, 7);
+
+
         setDimens(mRenderMode);
 
-//        Matrix.setIdentityM(mMVPMatrix, 0);
-//        Matrix.rotateM(mMVPMatrix, 0, mGLSurfaceView.getRotation(), 0f, 0f, -1f);
-//        GLES20.glUniformMatrix4fv(mMVPMatrixHandle, 1, false, mMVPMatrix, 0);
-
         generateCoordinates();
-//        mMVPMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix");
-//        checkGlError("SC", "handleGet");
     }
 
     @Override
@@ -162,42 +161,51 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
         }
         applyEffect();
 //        Log.e("ARBANE", mGLSurfaceView.getRotation() + "");
-//        Matrix.setIdentityM(mModelMatrix, 0); // initialize to identity matrix
-//        Matrix.setRotateM(mRotationMatrix, 0, mGLSurfaceView.getRotation(), 0, 0, -1.0f);
-//
-//        mTempMatrix = mModelMatrix.clone();
-//        Matrix.multiplyMM(mModelMatrix, 0, mTempMatrix, 0, mRotationMatrix, 0);
-//        mTempMatrix = mMVPMatrix.clone();
-//        Matrix.multiplyMM(mMVPMatrix, 0, mTempMatrix, 0, mModelMatrix, 0);
-//
-//        GLES20.glUniformMatrix4fv(mMVPMatrixHandle, 1, false, mMVPMatrix, 0);
 
-
-        // uncomment to make this work...
-//        Matrix.setIdentityM(mMVPMatrix, 0);
-//        Matrix.rotateM(mMVPMatrix, 0, mGLSurfaceView.getRotation(), 0f, 0f, -1f);
-//        GLES20.glUniformMatrix4fv(mMVPMatrixHandle, 1, false, mMVPMatrix, 0);
-//        checkGlError("glUniformMatrix4fv");
-
-
-
+//        Log.e("ARBANE", "DRAW");
         draw(mImageEffect == null || mImageEffect == ImageEffect.EFFECT_ORIGINAL ? texture[0] : texture[1]);
     }
 
-    private void checkLocation(int location, String label) {
-        if (location < 0) {
-//            throw new RuntimeException("Unable to locate '" + label + "' in program");
-        }
-    }
-
     private void draw(int texture) {
+
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
         GLES20.glUseProgram(program);
         GLES20.glDisable(GLES20.GL_BLEND);
 
+
+
+        // Matrix manipulations ...
+        Matrix.setLookAtM(mViewMatrix, 0, 0, 0, 6, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
+        Matrix.multiplyMM(mMVPMatrix, 0, mProjectionMatrix, 0, mViewMatrix, 0);
+//        Matrix.setIdentityM(mMVPMatrix, 0);
+//        Matrix.rotateM(mMVPMatrix, 0, 0, 0f, 0f, 1f);
+
+
+        boolean animationActive = isAnimationActive;
+
+        if (animationActive ) {
+            long time = SystemClock.uptimeMillis() % 4000L;
+            float angle = 0.090f * ((int) time);
+
+            Matrix.setRotateM(mRotationMatrix, 0, angle, 0, 0, -1.0f);
+            Matrix.multiplyMM(scratch, 0, mMVPMatrix, 0, mRotationMatrix, 0);
+            drawTexture(scratch, texture);
+        } else {
+            drawTexture(mMVPMatrix, texture);
+        }
+
+    }
+
+    private void drawTexture(float[] matrix, int texture) {
         int positionHandle = GLES20.glGetAttribLocation(program, "aPosition");
         int textureHandle = GLES20.glGetUniformLocation(program, "uTexture");
         int texturePositionHandle = GLES20.glGetAttribLocation(program, "aTexPosition");
+        mMVPMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix");
+        checkGlError("SC", "handleGet");
+
+        // from here, we just draw w.r.t matrixes
+        GLES20.glUniformMatrix4fv(mMVPMatrixHandle, 1, false, matrix, 0);
+
 
         GLES20.glVertexAttribPointer(texturePositionHandle, 2, GLES20.GL_FLOAT, false, 0, textureBuffer);
         GLES20.glEnableVertexAttribArray(texturePositionHandle);
@@ -232,6 +240,8 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
                 break;
             case EFFECT_ROTATE:
                 effect = factory.createEffect(EffectFactory.EFFECT_ROTATE);
+                int r = rand.nextInt(4);
+                effect.setParameter("angle", 90*r);
                 break;
 //                effect.setParameter("angle", 90);
         }
@@ -266,8 +276,9 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
             // I don't know what this line does. But this really helped me.
             GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1);
 
-            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, mBitmap, 0);
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, mBitmap, 0); // TODO: revert
         }
+
         vertices = new float[8];
         vertices[0] = -w / 2f;
         vertices[1] = -h / 2f;
@@ -329,7 +340,7 @@ public class OLSurfaceViewRenderer implements GLSurfaceView.Renderer {
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
             Log.e(TAG, op + ": glError " + error);
-//            throw new RuntimeException(op + ": glError " + error);
+            throw new RuntimeException(op + ": glError " + error);
         }
     }
 }

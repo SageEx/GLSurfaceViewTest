@@ -4,8 +4,21 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#ffffff"
+    android:background="#000000"
     tools:context="com.example.arbane.surfaceviewtest.MainActivity">
+
+    <FrameLayout
+        android:id="@+id/main_f2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center">
+        <com.example.arbane.surfaceviewtest.OLGLSurfaceView
+            android:id="@+id/glsv"
+            android:layout_gravity="center"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="wrap_content"
@@ -55,22 +68,22 @@
                 android:layout_height="wrap_content"
                 android:text="Shrink" />
 
+            <Button
+                android:id="@+id/b6"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Rotate Effect" />
+
         </LinearLayout>
 
     </LinearLayout>
 
-    <FrameLayout
-        android:id="@+id/main_f2"
-        android:layout_width="400dp"
-        android:layout_height="400dp"
-        android:layout_gravity="center">
-        <com.example.arbane.surfaceviewtest.OLGLSurfaceView
-            android:id="@+id/glsv"
-            android:layout_gravity="center"
-            android:layout_width="400dp"
-            android:layout_height="300dp" />
+    <View
+        android:id="@+id/free_view"
+        android:layout_width="1dp"
+        android:layout_height="1dp"/>
 
-    </FrameLayout>
+
 
     <Button
         android:id="@+id/orig_img"
